@@ -30,7 +30,6 @@
 #include <map>
 #include <set>
 using namespace llvm;
-#define TILE_STATIC_NAME "clamp_opencl_local"
 
 namespace {
 
@@ -1389,142 +1388,6 @@ bool isAddressCopiedToHost(const GlobalVariable &G, const Function &F) {
     return false;
 }
 
-// Assign addr_space to global variables.
-//
-// Assign address space to global variables, and make one copy for each user function.
-// Processed global variable could be in global, local or constant address space.
-//
-// tile_static are declared as static variables in section("clamp_opencl_local")
-// for each tile_static, make a modified clone with address space 3 and update users
-void promoteGlobalVars(Function *Func, InstUpdateWorkList * updateNeeded)
-{
-    Module *M = Func->getParent();
-    Module::GlobalListType &globals = M->getGlobalList();
-    for (Module::global_iterator I = globals.begin(), E = globals.end();
-        I != E; I++) {
-        unsigned the_space = LocalAddressSpace;
-        if (!I->hasSection() && I->isConstant() &&
-            I->getType()->getPointerAddressSpace() == 0 &&
-            I->hasName() && I->getLinkage() == GlobalVariable::InternalLinkage) {
-            // Though I'm global, I'm constant indeed.
-          if(usedInTheFunc(I.operator->(), Func))
-            the_space = ConstantAddressSpace;
-          else
-            continue;
-        } else if (!I->hasSection() && I->isConstant() &&
-            I->getType()->getPointerAddressSpace() == 0 &&
-            I->hasName() && I->getLinkage() == GlobalVariable::PrivateLinkage) {
-            // Though I'm private, I'm constant indeed.
-            // FIXME: We should determine constant with address space (2) for OpenCL SPIR
-            //              during clang front-end. It is not reliable to determine that in Promte stage
-            if(usedInTheFunc(I.operator->(), Func))
-              the_space = ConstantAddressSpace;
-            else
-              continue;
-        } else if (!I->hasSection() ||
-            I->getSection() != std::string(TILE_STATIC_NAME) ||
-            !I->hasName()) {
-            // promote to global address space if the variable is used in a kernel
-            // and does not come with predefined address space
-            if (usedInTheFunc(I.operator->(), Func) && I->getType()->getPointerAddressSpace() == 0) {
-              the_space = GlobalAddressSpace;
-            } else {
-              continue;
-            }
-        }
-
-        // If the address of this global variable is available from host, it
-        // must stay in global address space.
-        if (isAddressCopiedToHost(*I, *Func))
-            the_space = GlobalAddressSpace;
-        DEBUG(llvm::errs() << "Promoting variable: " << *I << "\n";
-                errs() << "  to addrspace(" << the_space << ")\n";);
-
-        std::set<Function *> users;
-        typedef std::multimap<Function *, llvm::User *> Uses;
-        Uses uses;
-        for (Value::user_iterator U = I->user_begin(), Ue = I->user_end();
-            U!=Ue;) {
-            if (Instruction *Ins = dyn_cast<Instruction>(*U)) {
-                users.insert(Ins->getParent()->getParent());
-                uses.insert(std::make_pair(Ins->getParent()->getParent(), *U));
-            } else if (ConstantExpr *C = dyn_cast<ConstantExpr>(*U)) {
-                // Replace ConstantExpr with Instruction so we can track it
-                updateListWithUsers (*U, I.operator->(), I.operator->(), updateNeeded);
-                if (C->getNumUses() == 0) {
-                  // Only non-zero ref can be destroyed, otherwise deadlock occurs
-                  C->destroyConstant();
-                  U = I->user_begin();
-                  continue;
-                }
-            }
-            DEBUG(llvm::errs() << "U: \n";
-                U->dump(););
-            U++;
-        }
-        int i = users.size()-1;
-        // Create a clone of the tile static variable for each unique
-        // function that uses it
-        for (std::set<Function*>::reverse_iterator
-                F = users.rbegin(), Fe = users.rend();
-                F != Fe; F++, i--) {
-
-            // tile static variables cannot have an initializer
-            llvm::Constant *Init = nullptr;
-            if (I->hasSection() && (I->getSection() == std::string(TILE_STATIC_NAME))) {
-                Init = llvm::UndefValue::get(I->getType()->getElementType());
-            } else {
-                Init = I->hasInitializer() ? I->getInitializer() : 0;
-            }
-
-            GlobalVariable *new_GV = new GlobalVariable(*M,
-                    I->getType()->getElementType(),
-                    I->isConstant(), I->getLinkage(),
-                    Init,
-                    "", (GlobalVariable *)0, I->getThreadLocalMode(), the_space);
-            new_GV->copyAttributesFrom(I.operator->());
-            if (i == 0) {
-                new_GV->takeName(I.operator->());
-            } else {
-                new_GV->setName(I->getName());
-            }
-            if (new_GV->getName().find('.') == 0) {
-                // HSAIL does not accept dot at the front of identifier
-                // (clang generates dot names for string literals)
-                std::string tmp = new_GV->getName();
-                tmp[0] = 'x';
-                new_GV->setName(tmp);
-            }
-            std::pair<Uses::iterator, Uses::iterator> usesOfSameFunction;
-            usesOfSameFunction = uses.equal_range(*F);
-            for ( Uses::iterator U = usesOfSameFunction.first, Ue =
-                usesOfSameFunction.second; U != Ue; U++)
-                updateListWithUsers (U->second, I.operator->(), new_GV, updateNeeded);
-        }
-    }
-}
-
-void eraseOldTileStaticDefs(Module *M)
-{
-    std::vector<GlobalValue*> todo;
-    Module::GlobalListType &globals = M->getGlobalList();
-    for (Module::global_iterator I = globals.begin(), E = globals.end();
-        I != E; I++) {
-        if (!I->hasSection() ||
-            I->getSection() != std::string(TILE_STATIC_NAME) ||
-            I->getType()->getPointerAddressSpace() != 0) {
-            continue;
-        }
-        I->removeDeadConstantUsers();
-        if (I->getNumUses() == 0)
-            todo.push_back(I.operator->());
-    }
-    for (std::vector<GlobalValue*>::iterator I = todo.begin(),
-            E = todo.end(); I!=E; I++) {
-        (*I)->eraseFromParent();
-    }
-}
-
 bool hasPtrToNonZeroAddrSpace (Value * V)
 {
         Type * ValueType = V->getType();
@@ -1673,7 +1536,6 @@ Function * createPromotedFunctionToType ( Function * F, FunctionType * promoteTy
 
         ValueToValueMapTy CorrectedMapping;
         InstUpdateWorkList workList;
-        promoteGlobalVars(newFunction, &workList);
         updateArgUsers (newFunction, &workList);
         updateOperandType(F, newFunction, promoteType, &workList);
 
@@ -1681,8 +1543,6 @@ Function * createPromotedFunctionToType ( Function * F, FunctionType * promoteTy
                 workList.run();
                 CollectChangedCalledFunctions ( newFunction, &workList );
         } while ( !workList.empty() );
-
-        eraseOldTileStaticDefs(F->getParent());
 
         DEBUG(// don't verify the new function if it is only a declaration
         if (!newFunction->isDeclaration() && verifyFunction (*newFunction/*, PrintMessageAction*/)) {
@@ -1946,48 +1806,13 @@ bool PromoteGlobals::runOnModule(Module& M)
                 promotedKernels[*F] = promoted;
         }
         updateKernels (M, promotedKernels);
-
-        // Rename local variables per SPIR naming rule
-        Module::GlobalListType &globals = M.getGlobalList();
-        for (Module::global_iterator I = globals.begin(), E = globals.end();
-                I != E; I++) {
-            if (I->hasSection() &&
-                    I->getSection() == std::string(TILE_STATIC_NAME) &&
-                    I->getType()->getPointerAddressSpace() != 0) {
-
-                std::string oldName = I->getName().str();
-                // Prepend the name of the function which contains the user
-                std::set<std::string> userNames;
-                for (Value::user_iterator U = I->user_begin(), Ue = I->user_end();
-                    U != Ue; U ++) {
-                    Instruction *Ins = dyn_cast<Instruction>(*U);
-                    if (!Ins)
-                        continue;
-                    userNames.insert(Ins->getParent()->getParent()->getName().str());
-                }
-                // A local memory variable belongs to only one kernel, per SPIR spec
-                assert(userNames.size() < 2 &&
-                        "__local variable belongs to more than one kernel");
-                if (userNames.empty())
-                    continue;
-                oldName = *(userNames.begin()) + "."+oldName;
-                I->setName(oldName);
-                // AMD SPIR stack takes only internal linkage
-                if (I->hasInitializer())
-                    I->setLinkage(GlobalValue::InternalLinkage);
-            }
-        }
         return false;
 }
 
 
 char PromoteGlobals::ID = 0;
-#if 1
 static RegisterPass<PromoteGlobals>
 Y("promote-globals", "Promote Pointer To Global Pass");
-#else
-INITIALIZE_PASS(PromoteGlobals, "promote-globals", "Promote Pointer to Global", false, false);
-#endif
 
 llvm::ModulePass * createPromoteGlobalsPass ()
 {
