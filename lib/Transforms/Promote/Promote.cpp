@@ -1660,6 +1660,16 @@ Function * createPromotedFunctionToType ( Function * F, FunctionType * promoteTy
                 newFunction = promotedFunction;
               }
               break;
+            case GenericAddressSpace:
+              newFuncName = F->getName().str() + "_generic";
+              DEBUG(llvm::errs() << newFuncName << "\n";);
+              promotedFunction = F->getParent()->getFunction(newFuncName);
+              if (!promotedFunction) {
+                newFunction->setName(F->getName() + "_generic");
+              } else {
+                newFunction = promotedFunction;
+              }
+              break;
             default:
               break;
           }
