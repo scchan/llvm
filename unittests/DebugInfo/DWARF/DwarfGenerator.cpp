@@ -1,4 +1,4 @@
-//===--- lib/CodeGen/DwarfGenerator.cpp -------------------------*- C++ -*-===//
+//===--- unittests/DebugInfo/DWARF/DwarfGenerator.cpp -----------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "../lib/CodeGen/AsmPrinter/DwarfStringPool.h"
 #include "DwarfGenerator.h"
-#include "AsmPrinter/DwarfStringPool.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/DIE.h"
@@ -61,7 +61,8 @@ void dwarfgen::DIE::addAttribute(uint16_t A, dwarf::Form Form,
   auto &DG = CU->getGenerator();
   if (Form == DW_FORM_string) {
     Die->addValue(DG.getAllocator(), static_cast<dwarf::Attribute>(A), Form,
-                  new (DG.getAllocator()) DIEInlineString(String));
+                  new (DG.getAllocator())
+                      DIEInlineString(String, DG.getAllocator()));
   } else {
     Die->addValue(
         DG.getAllocator(), static_cast<dwarf::Attribute>(A), Form,
@@ -110,7 +111,9 @@ dwarfgen::DIE dwarfgen::CompileUnit::getUnitDIE() {
 /// dwarfgen::Generator implementation.
 //===----------------------------------------------------------------------===//
 
-dwarfgen::Generator::Generator() : Abbreviations(Allocator) {}
+dwarfgen::Generator::Generator()
+    : MAB(nullptr), MCE(nullptr), MS(nullptr), StringPool(nullptr),
+      Abbreviations(Allocator) {}
 dwarfgen::Generator::~Generator() = default;
 
 llvm::Expected<std::unique_ptr<dwarfgen::Generator>>
@@ -201,7 +204,7 @@ llvm::Error dwarfgen::Generator::init(Triple TheTriple, uint16_t V) {
   MC->setDwarfVersion(Version);
   Asm->setDwarfVersion(Version);
 
-  StringPool.reset(new DwarfStringPool(Allocator, *Asm, StringRef()));
+  StringPool = llvm::make_unique<DwarfStringPool>(Allocator, *Asm, StringRef());
 
   return Error::success();
 }

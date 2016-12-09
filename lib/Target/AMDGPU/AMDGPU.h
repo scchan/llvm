@@ -100,6 +100,10 @@ ModulePass *createAMDGPUAlwaysInlinePass();
 ModulePass *createAMDGPUOpenCLImageTypeLoweringPass();
 FunctionPass *createAMDGPUAnnotateUniformValues();
 
+FunctionPass* createAMDGPUUnifyMetadataPass();
+void initializeAMDGPUUnifyMetadataPass(PassRegistry&);
+extern char &AMDGPUUnifyMetadataID;
+
 ModulePass *createAMDGPUOCL12AdapterPass();
 void initializeAMDGPUOCL12AdapterPass(PassRegistry&);
 extern char &AMDGPUOCL12AdapterID;
