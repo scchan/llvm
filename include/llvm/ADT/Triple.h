@@ -663,6 +663,21 @@ public:
   bool supportsCOMDAT() const { return !isOSBinFormatMachO() && 
                                          getArch() != Triple::amdgcn; }
 
+  /// Tests whether the target is MIPS 32-bit (little and big endian).
+  bool isMIPS32() const {
+    return getArch() == Triple::mips || getArch() == Triple::mipsel;
+  }
+
+  /// Tests whether the target is MIPS 64-bit (little and big endian).
+  bool isMIPS64() const {
+    return getArch() == Triple::mips64 || getArch() == Triple::mips64el;
+  }
+
+  /// Tests whether the target is MIPS (little and big endian, 32- or 64-bit).
+  bool isMIPS() const {
+    return isMIPS32() || isMIPS64();
+  }
+
   /// Tests whether the target uses emulated TLS as default.
   bool hasDefaultEmulatedTLS() const {
     return isAndroid() || isOSOpenBSD() || isWindowsCygwinEnvironment();
