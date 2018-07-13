@@ -31,6 +31,7 @@ using namespace std;
 namespace {
 class PromotePointerKernArgsToGlobal : public FunctionPass {
     // TODO: query the address space robustly.
+    static constexpr unsigned int GenericAddrSpace{0u};
     static constexpr unsigned int GlobalAddrSpace{1u};
 public:
     static char ID;
@@ -42,7 +43,12 @@ public:
 
         SmallVector<Argument *, 8> PtrArgs;
         for_each(F.arg_begin(), F.arg_end(), [&](Argument &Arg) {
-            if (Arg.getType()->isPointerTy()) PtrArgs.push_back(&Arg);
+            if (!Arg.getType()->isPointerTy()) return;
+            if (Arg.getType()->getPointerAddressSpace() != GenericAddrSpace) {
+                return;
+            }
+
+            PtrArgs.push_back(&Arg);
         });
 
         if (PtrArgs.empty()) return false;
@@ -51,7 +57,7 @@ public:
         Builder.SetInsertPoint(&F.getEntryBlock().front());
 
         for_each(PtrArgs.begin(), PtrArgs.end(), [](Argument *PArg) {
-            auto Tmp = new Argument{PArg->getType()};
+            auto Tmp{new Argument{PArg->getType(), PArg->getName()}};
             PArg->replaceAllUsesWith(Tmp);
 
             Value *FToG = Builder.CreateAddrSpaceCast(
