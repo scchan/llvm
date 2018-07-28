@@ -206,8 +206,7 @@ public:
     Cygnus,
     CoreCLR,
     Simulator,  // Simulator variants of other systems, e.g., Apple's iOS
-    HCC,
-    LastEnvironmentType = HCC
+    LastEnvironmentType = Simulator
   };
   enum ObjectFormatType {
     UnknownObjectFormat,

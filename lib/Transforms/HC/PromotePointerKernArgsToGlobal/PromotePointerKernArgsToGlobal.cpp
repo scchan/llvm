@@ -57,8 +57,8 @@ public:
         Builder.SetInsertPoint(&F.getEntryBlock().front());
 
         for_each(PtrArgs.begin(), PtrArgs.end(), [](Argument *PArg) {
-            auto Tmp{new Argument{PArg->getType(), PArg->getName()}};
-            PArg->replaceAllUsesWith(Tmp);
+            Argument Tmp{PArg->getType(), PArg->getName()};
+            PArg->replaceAllUsesWith(&Tmp);
 
             Value *FToG = Builder.CreateAddrSpaceCast(
                 PArg,
@@ -66,7 +66,7 @@ public:
                     ->getElementType()->getPointerTo(GlobalAddrSpace));
             Value *GToF = Builder.CreateAddrSpaceCast(FToG, PArg->getType());
 
-            Tmp->replaceAllUsesWith(GToF);
+            Tmp.replaceAllUsesWith(GToF);
         });
 
         return true;
