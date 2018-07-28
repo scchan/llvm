@@ -335,8 +335,7 @@ StringRef AMDGPUTargetMachine::getFeatureString(const Function &F) const {
 }
 
 void AMDGPUTargetMachine::addPreLinkPasses(PassManagerBase & PM) {
-  if (getTargetTriple().getEnvironment() != Triple::HCC)
-    PM.add(llvm::createAMDGPUOCL12AdapterPass());
+  PM.add(llvm::createAMDGPUOCL12AdapterPass());
   PM.add(llvm::createAMDGPUPrintfRuntimeBinding());
 }
 
