@@ -525,7 +525,6 @@ static Triple::EnvironmentType parseEnvironment(StringRef EnvironmentName) {
     .StartsWith("cygnus", Triple::Cygnus)
     .StartsWith("coreclr", Triple::CoreCLR)
     .StartsWith("simulator", Triple::Simulator)
-    //.StartsWith("hcc", Triple::HCC)
     .Default(Triple::UnknownEnvironment);
 }
 
